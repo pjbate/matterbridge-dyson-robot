@@ -87,8 +87,9 @@ export class DysonMqttConnection {
             } catch (err) {
                 if (!(err instanceof Error && err.name === 'AbortError')) {
                     logError(this.log, 'MQTT Reconnect', err);
+                    this.backoff = Math.min(this.backoff * BACKOFF_FACTOR, BACKOFF_MAX);
+                    this.reconnect();
                 }
-                // (Don't retry if failed before attempting reconnection)
             }
         })();
     }
@@ -101,7 +102,7 @@ export class DysonMqttConnection {
                 await this.mqtt.connect();
             } catch (err) {
                 logError(this.log, 'MQTT Start', err);
-                // (Don't retry if failed before attempting connection)
+                this.reconnect();
             }
         })();
     }

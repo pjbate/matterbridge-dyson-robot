@@ -1,5 +1,9 @@
 /node_modules
 /dist
 src/ti
+/.DS_Store
+/artifacts
+*.tgz
+*.zip
 *~
 [#]*[#]

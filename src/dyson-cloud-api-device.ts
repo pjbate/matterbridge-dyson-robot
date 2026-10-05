@@ -19,6 +19,7 @@ import {
     Dyson360PersistentMapMetadata,
     Dyson360PersistentMapResponse,
     Dyson360RecommendedCleansResponse,
+    Dyson360SpotScrubMapMetadata,
     Dyson360UnifiedschedulerEventsResponse,
     Dyson360ZoneBehavioursRequest
 } from './dyson-360-cloud-types.js';
@@ -120,6 +121,12 @@ export class DysonCloudAPIDevice {
     getPersistentMapMetadata360(): Promise<Dyson360PersistentMapMetadata[]> {
         const path = `/v1/app/${this.serialNumber}/persistent-map-metadata`;
         return this.ua.getJSON(checkers360.Dyson360PersistentMapMetadataResponse, path);
+    }
+
+    // Retrieve map and zone definitions for a Spot+Scrub Ai
+    getPersistentMapMetadata360SpotScrub(): Promise<Dyson360SpotScrubMapMetadata[]> {
+        const path = `/v2/app/${this.serialNumber}/persistent-map-metadata`;
+        return this.ua.getJSON(checkers360.Dyson360SpotScrubMapMetadataResponse, path);
     }
 
     // Retrieve the full details of a specific persistent map (360 Vis Nav only)

@@ -39,6 +39,7 @@ import {
 import { EndpointBase } from './endpoint-base.js';
 import { MaybePromise, VendorId } from 'matterbridge/matter';
 import { setTimeout } from 'node:timers/promises';
+import { mapSpotScrubActivity, RB05_PHASES } from './dyson-rb05-status.js';
 
 // Details of a completed clean
 export interface Dyson360CleanSummary {
@@ -66,6 +67,7 @@ type StateMapColumns = [
 ]
 const STATE_MAP: Record<Dyson360State, StateMapColumns> = {
     //                                      RunMode         OperationalState    isDocked
+    [Dyson360State.Aborted]:                ['Idle',        'SeekingCharger',   false],
     [Dyson360State.MachineOff]:             ['Idle',        'Error',            false],
     [Dyson360State.FaultCallHelpline]:      ['Idle',        'Error',            false],
     [Dyson360State.FaultContactHelpline]:   ['Idle',        'Error',            false],
@@ -132,6 +134,7 @@ export abstract class DysonDevice360Base
 
     // The RVC device endpoint
     endpoint?:              Endpoint360;
+    commandHandlers?:       Device360CommandHandlers;
 
     // State used to detect the end of a clean
     runMode = RvcRunMode360.Idle;
@@ -141,8 +144,7 @@ export abstract class DysonDevice360Base
         super(...args);
 
         // Prepare listeners for MQTT updates
-        this.mqttStatusListener = tryListener(this.mqtt, () =>
-            this.updateClusterAttributes(this.mqtt.status));
+        this.mqttStatusListener = tryListener(this.mqtt, () => this.updateFromMqtt());
     }
 
     // Create the endpoint for this device
@@ -175,12 +177,13 @@ export abstract class DysonDevice360Base
                 labels:             rvcCleanModeLabels,
                 simpleModeTags:     this.config.simpleModeTagsRvc
             },
-            supportsMaps:           this.supportsMaps()
+            supportsMaps:           this.supportsMaps(),
+            statusPhases:           this.mqtt.isSpotScrub ? [...RB05_PHASES] : undefined
         };
 
         // Create the endpoint and attach a command handler
         const endpoint = new Endpoint360(this.log, this.config, endpointOptions);
-        this.attachCommandHandlers(endpoint);
+        this.commandHandlers = this.attachCommandHandlers(endpoint);
         return endpoint;
     }
 
@@ -207,7 +210,7 @@ export abstract class DysonDevice360Base
     // Start the device after the endpoints are active
     override async start(): Promise<void> {
         this.mqtt.on('status',  this.mqttStatusListener);
-        await this.updateClusterAttributes(this.mqtt.status);
+        await this.updateFromMqtt();
     }
 
     // Stop the device when Matterbridge is shutting down
@@ -278,9 +281,29 @@ export abstract class DysonDevice360Base
         const powerLevel = map[0];
         return {
             description:    map[0],
-            command:        () => this.setPowerLevel(powerLevel),
+            command:        async () => {
+                if (!this.isMqttReadyForCommands()) throw new Error('Dyson robot is unavailable');
+                await this.setPowerLevel(powerLevel);
+            },
             condition:      () => this.getPowerLevel() === powerLevel
         };
+    }
+
+    // MQTT state can arrive after the Matter endpoint is registered. Until then,
+    // expose the endpoint as unreachable and avoid mapping incomplete state.
+    async updateFromMqtt(): Promise<void> {
+        assertIsDefined(this.endpoint);
+        const { status } = this.mqtt;
+        if (status.mqttState !== 'initialised' && status.mqttState !== 'startingWithCache') {
+            await this.endpoint.updateReachable(false);
+            return;
+        }
+        await this.updateClusterAttributes(status);
+    }
+
+    // Never publish commands while using cached state or without a live connection.
+    isMqttReadyForCommands(): boolean {
+        return this.mqtt.status.mqttState === 'initialised' && this.mqtt.status.reachable;
     }
 
     // Map a Dyson power mode to its corresponding RVC Clean Mode
@@ -370,6 +393,7 @@ export abstract class DysonDevice360Base
             assert(operationalState !== RvcOperationalState.OperationalState.Error);
         }
 
-        return { isActive, operationalState, operationalError };
+        const activity = this.mqtt.isSpotScrub ? mapSpotScrubActivity(status, operationalState) : {};
+        return { isActive, operationalState, operationalError, ...activity };
     }
 }

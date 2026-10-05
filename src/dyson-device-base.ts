@@ -82,6 +82,9 @@ export abstract class DysonDevice<MQTT extends DysonMqttLike = DysonMqttLike> {
     // Retrieve the root device endpoints after validation
     abstract getEndpoints(validatedNames: EntityName[]): EndpointBase[];
 
+    // Optional metadata preparation before deciding which endpoints to register.
+    prepareEndpoints(): Promise<void> { return Promise.resolve(); }
+
     // Start the device after the endpoints are active
     abstract start(): Promise<void>;
 

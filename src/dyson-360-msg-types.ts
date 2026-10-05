@@ -9,11 +9,13 @@ import {
     Dyson360CleaningType,
     Dyson360Faults,
     Dyson360GoodbyeReason,
+    Dyson360GlobalPosition,
     Dyson360OutOfBoxState,
     Dyson360Position,
     Dyson360PowerMode,
     Dyson360State,
-    Dyson360ZoneStatus
+    Dyson360ZoneStatus,
+    DysonSpotScrubCleaningProgramme
 } from './dyson-360-types.js';
 import { DysonModeReason, DysonMsg } from './dyson-types.js';
 
@@ -71,7 +73,31 @@ export interface Dyson360MsgImBack extends DysonMsg {
     state?:                     Dyson360State;
 }
 
-export interface Dyson360MsgCurrentState extends DysonMsg {
+export interface Dyson360SpotScrubStatus {
+    airDryFrequency?:           number;
+    alarm?:                     boolean;
+    backWashFrequency?:         number;
+    backWashTime?:              number;
+    backWashType?:              string;
+    childLock?:                 boolean;
+    cleaningState?:             string; // Dock state, not robot activity
+    collectDustOnSelfClean?:    boolean;
+    consumables?:               { type: string; usage?: number; needsRefill?: boolean }[];
+    detergent?:                 boolean;
+    dockCommissioningState?:    string;
+    dockCommissioningSupported?: boolean;
+    dockState?:                 string;
+    doNotDisturbMode?:          { isOn: boolean; startTime: string; endTime: string };
+    fullCleanAction?:           string;
+    hotWaterMop?:               boolean;
+    hotWaterSwitch?:            boolean;
+    initialDockCommissioningCompleted?: boolean;
+    voiceLanguage?:             string;
+    volume?:                    number;
+    washMopBeforeClean?:        boolean;
+}
+
+export interface Dyson360MsgCurrentState extends DysonMsg, Dyson360SpotScrubStatus {
     msg:                        'CURRENT-STATE';
     activeFaults?:              Dyson360ActiveFault[],
     batteryChargeLevel?:        number; // Percent remaining
@@ -87,19 +113,19 @@ export interface Dyson360MsgCurrentState extends DysonMsg {
     defaultVacuumPowerMode?:    Dyson360PowerMode;
     faults?:                    Dyson360Faults;
     fullCleanType?:             Dyson360CleaningType;
-    globalPosition?:            Dyson360Position;
+    globalPosition?:            Dyson360GlobalPosition;
     outOfBoxState?:             Dyson360OutOfBoxState;
     persistentMapId?:           string; // UUID
     rssi?:                      string; // Wi-Fi RSSI dBm
     sessionId?:                 string; // UUID
-    state:                      Dyson360State;
+    state?:                     Dyson360State; // RB05 position updates omit state
     traverseTargetId?:          string; // e.g. '1'
     zoneId?:                    string; // e.g. '1'
     zonesDefinitionVersion?:    string; // e.g. '2024-09-17T23:08:23.9939605Z'
     zoneStatus?:                Dyson360ZoneStatus[];
 }
 
-export interface Dyson360MsgStateChange extends DysonMsg {
+export interface Dyson360MsgStateChange extends DysonMsg, Dyson360SpotScrubStatus {
     msg:                        'STATE-CHANGE';
     activeFaults?:              Dyson360ActiveFault[],
     batteryChargeLevel?:        number; // Percent remaining
@@ -116,7 +142,7 @@ export interface Dyson360MsgStateChange extends DysonMsg {
     endOfClean?:                boolean;
     faults?:                    Dyson360Faults;
     fullCleanType?:             Dyson360CleaningType;
-    globalPosition?:            Dyson360Position;
+    globalPosition?:            Dyson360GlobalPosition;
     newActiveFaults?:           Dyson360ActiveFault[],
     newOutOfBoxState?:          Dyson360OutOfBoxState;
     newstate:                   Dyson360State;
@@ -190,7 +216,7 @@ export interface Dyson360MsgStateSet extends DysonMsg {
     }
 }
 
-export interface Dyson360MsgStart extends DysonMsg {
+export interface Dyson360LegacyStart extends DysonMsg {
     msg:                        'START';
     'mode-reason'?:             DysonModeReason;
     fullCleanType:              Dyson360CleaningType;
@@ -200,6 +226,16 @@ export interface Dyson360MsgStart extends DysonMsg {
     vacuumPowerMode?:           Dyson360PowerMode;
     cleanId?:                   string; // UUID
 }
+
+// Captured from MyDyson's Hallway-only RB05 START on 3 October 2026.
+export interface DysonSpotScrubStart extends DysonMsg {
+    msg:                        'START';
+    'mode-reason':              DysonModeReason.RemoteApp;
+    cleaningMode:               Dyson360CleaningMode.ZoneConfigured;
+    cleaningProgramme:          DysonSpotScrubCleaningProgramme;
+}
+
+export type Dyson360MsgStart = Dyson360LegacyStart | DysonSpotScrubStart;
 
 export interface Dyson360MsgPause extends DysonMsg {
     msg:                        'PAUSE';
@@ -229,4 +265,11 @@ export interface Dyson360MsgAcknowledgeFault extends DysonMsg {
     msg:                        'ACKNOWLEDGE-FAULT',
     'mode-reason':              DysonModeReason,
     faultCode:                  string; // e.g. '19.12.-1'
+}
+
+export interface Dyson360MsgMapUploadStatus extends DysonMsg {
+    msg:                        'MAP-UPLOAD-STATUS';
+    status:                     string;
+    cleanId?:                   string;
+    persistentMapId?:           string;
 }

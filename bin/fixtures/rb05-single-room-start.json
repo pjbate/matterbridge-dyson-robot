@@ -1,0 +1,9 @@
+{
+    "mode-reason": "RAPP",
+    "cleaningMode": "zoneConfigured",
+    "cleaningProgramme": {
+        "persistentMapId": "test-map",
+        "unorderedZones": ["zone-a"]
+    },
+    "msg": "START"
+}

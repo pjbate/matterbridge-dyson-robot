@@ -217,7 +217,11 @@ export class ServiceAreaServer360 extends ServiceAreaBehavior {
 
             // If all areas are specified then treat it as an empty list
             if (newAreas.length === this.state.supportedAreas.length) newAreas = [];
-            else if (maps.size !== 1) throw new SelectAreaError.InvalidSet('Areas must all be from the same map');
+            else if (newAreas.length && maps.size !== 1) throw new SelectAreaError.InvalidSet('Areas must all be from the same map');
+
+            // Idempotency is a selection rule, not permission to swallow a
+            // failed actuation. Unchanged selections need no command at all.
+            if (isDeepStrictEqual(new Set(this.state.selectedAreas), new Set(newAreas))) return SelectAreaError.toResponse();
 
             // Attempt to select the areas
             await device.executeCommand('SelectAreas', newAreas);
@@ -226,14 +230,8 @@ export class ServiceAreaServer360 extends ServiceAreaBehavior {
             // Success
             return SelectAreaError.toResponse();
         } catch (err) {
-            if (isDeepStrictEqual(new Set(this.state.selectedAreas), new Set(newAreas))) {
-                // Matter requires Success status if the areas are unchanged
-                logError(log, 'Service Area SelectAreas (error ignored)', err);
-                return SelectAreaError.toResponse();
-            } else {
-                logError(log, 'Service Area SelectAreas', err);
-                return SelectAreaError.toResponse(err);
-            }
+            logError(log, 'Service Area SelectAreas', err);
+            return SelectAreaError.toResponse(err);
         }
     }
 }

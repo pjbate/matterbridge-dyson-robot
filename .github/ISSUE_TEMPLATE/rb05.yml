@@ -1,0 +1,33 @@
+name: Experimental RB05 report
+description: A sanitised issue with this experimental fork, not an official upstream release
+title: '[RB05] '
+body:
+  - type: markdown
+    attributes:
+      value: 'Please read docs/RB05.md and CONTRIBUTING.md. Do not upload raw credentials, configuration, floor plans or captures.'
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Experimental plugin, Node, Matterbridge and Home/controller versions
+    validations:
+      required: true
+  - type: textarea
+    id: action
+    attributes:
+      label: Intended action and observed result
+      description: Dedicated room tile or main robot Start? Include reported state and physical result without household names or map IDs.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitised error or minimal reproduction
+      description: Remove credentials, serial numbers, account details and private identifiers. Synthetic examples are preferred.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I have removed credentials, private identifiers and household details.
+          required: true

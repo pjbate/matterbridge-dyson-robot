@@ -15,6 +15,7 @@ export enum Dyson360BackReason {
 
 // Dyson robot vacuum state
 export enum Dyson360State {
+    Aborted                         = 'ABORTED', // RB05: returning to the dock
     MachineOff                      = 'MACHINE_OFF',
     FaultCallHelpline               = 'FAULT_CALL_HELPLINE',
     FaultContactHelpline            = 'FAULT_CONTACT_HELPLINE',
@@ -73,6 +74,7 @@ export enum Dyson360FaultNextAction {
     LocalUserContinue               = 'LOCAL_USER_CONTINUE',
     LogOnly                         = 'LOG_ONLY',
     UserAck                         = 'USER_ACK',
+    UserContinue                    = 'USER_CONTINUE', // RB05
     WaitToClean                     = 'WAIT_TO_CLEAR'
 }
 export enum Dyson360FaultPresent {
@@ -88,8 +90,8 @@ export enum Dyson360FaultUserAction {
 export interface Dyson360ActiveFault {
     faultCode:                      string;         // e.g. '23.0.3',
     nextActionRequired:             Dyson360FaultNextAction;
-    present:                        Dyson360FaultPresent;
-    requiredUserAction:             Dyson360FaultUserAction;
+    present?:                       Dyson360FaultPresent;    // Omitted by RB05
+    requiredUserAction?:            Dyson360FaultUserAction; // Omitted by RB05
 }
 
 // Dyson robot vacuum power mode
@@ -140,6 +142,12 @@ export interface Dyson360CleaningProgramme {
     zonesDefinitionLastUpdatedDate: string | null;  // e.g. '2025-12-17T10:53:21.8147587Z'
 }
 
+// RB05 native room START omits Vis Nav ordering and definition timestamps.
+export interface DysonSpotScrubCleaningProgramme {
+    persistentMapId:                string;
+    unorderedZones:                 string[];
+}
+
 // Dyson robot vacuum zone status (360 Heurist and 360 Vis Nav only)
 export enum Dyson360ZoneCleanStatus {
     NotRequested                    = 'CLEAN_NOT_REQUESTED',
@@ -164,6 +172,16 @@ export enum Dyson360CleaningStrategy {
 
 // Dyson robot vacuum position
 export type Dyson360Position = [number, number];
+
+// RB05 pushes position-only updates independently of full robot state.
+export interface Dyson360SpotScrubPosition {
+    id:                             number;
+    x:                              number;
+    y:                              number;
+    angle:                          number;
+    update:                         number;
+}
+export type Dyson360GlobalPosition = Dyson360Position | Dyson360SpotScrubPosition[];
 
 // Dyson map data (after base64 and gzip decoding) (360 Eye only)
 export type Dyson360MapBitmap = number[][];

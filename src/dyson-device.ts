@@ -35,16 +35,36 @@ export async function createDysonDevice(
     const deviceClass = DYSON_DEVICE_TYPES.find((device) => device.model.type === rootTopic);
     if (!deviceClass) throw new Error(`Unknown Dyson device type: ${rootTopic}`);
 
-    // Create the MQTT client and wait for it to finish initialising
+    // Create the MQTT client
     const mqtt = new deviceClass.mqttConstructor(log, config, persist, device);
-    mqtt.on('error', err => { logError(log, 'MQTT Event', err); });
-    await mqtt.waitUntilInitialised(MQTT_CACHE_FALLBACK_DELAY);
+    const isSpotScrub = deviceClass.model.number === 'RB05';
+    mqtt.on('error', err => {
+        if (isSpotScrub && mqtt.status.mqttState !== 'initialised') {
+            const message = err instanceof Error ? err.message : String(err);
+            log.warn(`RB05 MQTT connection attempt failed: ${message}`);
+        } else {
+            logError(log, 'MQTT Event', err);
+        }
+    });
+
+    // RB05 uses Dyson's cloud MQTT service, which can be intermittently unreachable.
+    // Register its Matter endpoint immediately and let the connection manager keep
+    // retrying in the background. Other models retain the upstream startup behaviour.
+    if (isSpotScrub) {
+        log.info('Registering Spot+Scrub Ai while MQTT initialises in the background');
+    } else {
+        await mqtt.waitUntilInitialised(MQTT_CACHE_FALLBACK_DELAY);
+    }
 
     // Create the Dyson device itself
     return new deviceClass(log, config, device, mqtt as UnionToIntersection<typeof mqtt>, api);
 }
 
-// Test whether a specific model is supported
-export function isSupportedModel(rootTopic: string): boolean {
-    return DYSON_DEVICE_TYPES.some((device) => device.model.type === rootTopic);
+// Test whether a specific cloud product type is supported
+export function isSupportedModel(cloudType: string): boolean {
+    return DYSON_DEVICE_TYPES.some(device => {
+        if (device.model.type === cloudType) return true;
+        if (!('cloudTypes' in device.model)) return false;
+        return (device.model.cloudTypes as readonly string[]).includes(cloudType);
+    });
 }

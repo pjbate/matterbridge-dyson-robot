@@ -51,6 +51,7 @@ export interface EndpointOptions360 extends EndpointOptionsBase {
     powerSource:    BatteryPowerSourceOptions;
     rvcCleanMode:   RvcCleanModeOptions;
     supportsMaps:   boolean;
+    statusPhases?: string[];
 }
 
 // Updates to the Power Source cluster attributes
@@ -68,6 +69,7 @@ export interface UpdateRvcOperationalState360 {
     isActive:               boolean;
     operationalError:       RvcOperationalState.ErrorStateStruct;
     operationalState:       RvcOperationalState.OperationalState;
+    currentPhase?:          number;
 }
 
 // Updates to the Service Area cluster
@@ -102,7 +104,7 @@ export class Endpoint360 extends EndpointBase {
         createBatteryPowerSourceClusterServer(this, options.powerSource);
         createRvcRunModeClusterServer(this);
         createRvcCleanModeClusterServer(this, options.rvcCleanMode);
-        createRvcOperationalStateClusterServer(this);
+        createRvcOperationalStateClusterServer(this, options.statusPhases);
         if (options.supportsMaps) createServiceAreaClusterServer(this);
 
         // Add a command handler behavior
@@ -186,10 +188,14 @@ export class Endpoint360 extends EndpointBase {
     // Update the RVC Operational State cluster attributes when required
     @ifValueChanged
     async updateRvcOperationalState(attributes: UpdateRvcOperationalState360): Promise<void> {
-        const { operationalState, operationalError, isActive } = attributes;
+        const { operationalState, operationalError, isActive, currentPhase } = attributes;
         this.log.info(`${AN}RVC Operational State${RI}: ${formatEnumLog(RvcOperationalState.OperationalState, operationalState)}`);
         await this.updateAttribute(rvcOperationalStateBehavior, 'operationalState', operationalState, this.log);
         await this.updateAttribute(rvcOperationalStateBehavior, 'operationalError', operationalError, this.log);
+        if (currentPhase !== undefined) {
+            this.log.info(`RVC activity: ${this.options.statusPhases?.[currentPhase] ?? 'Unknown'}`);
+            await this.updateAttribute(rvcOperationalStateBehavior, 'currentPhase', currentPhase, this.log);
+        }
 
         // Trigger OperationCompletion event when changing from active to idle
         const { errorStateId, errorStateLabel, errorStateDetails } = operationalError;

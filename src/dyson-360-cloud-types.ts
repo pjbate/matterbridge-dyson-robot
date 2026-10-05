@@ -72,6 +72,42 @@ export interface Dyson360PersistentMapMetadata {
 }
 export type Dyson360PersistentMapMetadataResponse = Dyson360PersistentMapMetadata[];
 
+// GET /v2/app/{serial}/persistent-map-metadata (Spot+Scrub Ai only)
+export enum Dyson360SpotScrubCleanType {
+    Vacuum                          = 'vacuum',
+    VacuumAndMop                    = 'vacuumAndMop'
+}
+export interface Dyson360SpotScrubMapLocation {
+    x:                                  number;
+    y:                                  number;
+}
+export interface Dyson360SpotScrubZoneSettings {
+    cleaningStrategy?:                  Dyson360CleaningStrategy;
+    cleanType?:                         Dyson360SpotScrubCleanType;
+    dryPasses?:                         number;
+    isUVScanOn?:                        boolean;
+    mopPasses?:                         number;
+    waterLevel?:                        string;
+}
+export interface Dyson360SpotScrubMapZone {
+    area:                               number;
+    id:                                 string;
+    isSelected?:                        boolean;
+    name:                               string;
+    nameLocation?:                      Dyson360SpotScrubMapLocation;
+    order?:                             number;
+    settings?:                          Dyson360SpotScrubZoneSettings;
+    type?:                              string;
+}
+export interface Dyson360SpotScrubMapMetadata {
+    id:                                 string;
+    isCurrentMap:                       boolean;
+    mapUrl?:                            string | null;
+    name:                               string;
+    zones:                              Dyson360SpotScrubMapZone[];
+}
+export type Dyson360SpotScrubMapMetadataResponse = Dyson360SpotScrubMapMetadata[];
+
 // GET /v1/app/{serial}/persistent-maps/{uuid} (360 Vis Nav only)
 export interface Dyson360PersistentMapLocation {
     x:                                  number;             // mm

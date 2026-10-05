@@ -1,8 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: 💬 Discussions
-    url: https://github.com/thoukydides/matterbridge-dyson-robot/discussions
-    about: "If you are seeking support or have questions then please start a discussion here instead of raising an issue."
-  - name: 🤖 Ask Dosu
-    url: https://github.dosu.com/thoukydides/matterbridge-dyson-robot
-    about: "Ask an AI agent any question about this project. (Requires a free https://dosu.dev/ account.)"
+  - name: Official plugin
+    url: https://github.com/thoukydides/matterbridge-dyson-robot
+    about: 'Check the official project for current releases. Reports about this fork should use the experimental RB05 form.'

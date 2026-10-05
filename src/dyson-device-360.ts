@@ -7,7 +7,8 @@ import {
     Dyson360CleaningStrategy,
     Dyson360EyePowerMode,
     Dyson360HeuristPowerMode,
-    Dyson360TimelineEvent
+    Dyson360TimelineEvent,
+    Dyson360ZoneIcon
 } from './dyson-360-types.js';
 import {
     DysonDevice360Base,
@@ -19,7 +20,18 @@ import {
     dysonRenderMap360Eye,
     dysonRenderMap360VisNav
 } from './dyson-device-360-map.js';
-import { Dyson360PersistentMapResponse } from './dyson-360-cloud-types.js';
+import {
+    Dyson360PersistentMapMetadata,
+    Dyson360PersistentMapResponse,
+    Dyson360SpotScrubMapMetadata,
+    Dyson360SpotScrubMapZone
+} from './dyson-360-cloud-types.js';
+import { EndpointBase } from './endpoint-base.js';
+import { EndpointRoomButton, roomButtonId } from './endpoint-room-button.js';
+import { EntityName } from './config-types.js';
+import { assertIsDefined } from './utils.js';
+import { DysonMqttStatus } from './dyson-mqtt.js';
+import { DysonMqttStatus360 } from './dyson-mqtt-360.js';
 
 /* eslint-disable max-len */
 
@@ -38,11 +50,12 @@ The device is currently treated similarly to a Dyson 360 Eye, with partial updat
 ${DYSON360_COMPATIBILITY_COMMON}`;
 
 const DYSON360_COMPATIBILITY_SPOTSCRUB =
-`Dyson Spot+Scrub Ai (RB05) is not currently supported by this plugin.
+`Dyson Spot+Scrub Ai (RB05) support is experimental.
 
-Initialisation is expected to fail, and no functionality is implemented for this model. This is not a regression and does not indicate a configuration error.
+Basic status, battery, dock state and the Auto cleaning strategy are mapped from live MQTT state. Current-map rooms are exposed as Matter service areas and separate momentary room-clean tiles using saved Dyson rules. Single-room vacuuming and an Apple Home scene using a saved vacuum-and-mop rule have passed live tests on one RB05. Other devices, rooms and consumables remain unverified. Descriptive Matter phases are published, but controller display support varies. See docs/RB05.md for the scope and limitations of this experimental fork.
 
-${DYSON360_COMPATIBILITY_COMMON}`;
+For guidance and sanitised reports about this experimental fork, see:
+    https://github.com/pjbate/matterbridge-dyson-robot/blob/rb05-apple-home-room-controls/docs/RB05.md`;
 
 /* eslint-enable max-len */
 
@@ -145,9 +158,118 @@ export class DysonDevice360VisNav extends DysonDevice360ZonesMixin(DysonDevice36
     }
 }
 
+// Map a Spot+Scrub room type/name to a Matter-compatible Dyson zone icon
+function spotScrubZoneIcon(zone: Dyson360SpotScrubMapZone): Dyson360ZoneIcon {
+    const key = `${zone.type ?? ''} ${zone.name}`.toLowerCase().replaceAll(/[^a-z]/g, '');
+    const matches: [RegExp, Dyson360ZoneIcon][] = [
+        [/frontbalcony|balcony/,                   Dyson360ZoneIcon.Balcony],
+        [/guestbathroom|ensuite|bathroom/,         Dyson360ZoneIcon.Bathroom],
+        [/mainbedroom|masterbedroom/,              Dyson360ZoneIcon.MainBedroom],
+        [/kidsbedroom|guestbedroom|bedroom/,       Dyson360ZoneIcon.Bedroom],
+        [/diningroom|dining/,                      Dyson360ZoneIcon.DiningRoom],
+        [/hallway|hall/,                           Dyson360ZoneIcon.Hallway],
+        [/kitchen/,                                Dyson360ZoneIcon.Kitchen],
+        [/livingroom|lounge/,                      Dyson360ZoneIcon.LivingRoom],
+        [/study/,                                  Dyson360ZoneIcon.Study],
+        [/toilet/,                                 Dyson360ZoneIcon.Toilet],
+        [/utilityroom|laundry/,                    Dyson360ZoneIcon.UtilityRoom],
+        [/office|work/,                            Dyson360ZoneIcon.Work]
+    ];
+    return matches.find(([pattern]) => pattern.test(key))?.[1] ?? Dyson360ZoneIcon.Custom;
+}
+
+// Convert the RB05 v2 map response into the existing Service Area map model
+export function normaliseSpotScrubMaps(
+    maps: Dyson360SpotScrubMapMetadata[]
+): Dyson360PersistentMapMetadata[] {
+    const currentMaps = maps.filter(map => map.isCurrentMap);
+    // Never expose or start a room from an inactive/unknown-current map.
+    const selectedMaps = currentMaps;
+    return selectedMaps.map(map => ({
+        id:                             map.id,
+        name:                           map.name,
+        lastVisited:                    '',
+        zonesDefinitionLastUpdatedDate: null,
+        zones: map.zones.map(zone => ({
+            area:   zone.area,
+            icon:   spotScrubZoneIcon(zone),
+            id:     zone.id,
+            name:   zone.name
+        })),
+        zoneProperties: map.zones.map(zone => ({
+            zones:          [zone.id],
+            zoneBehaviours: {
+                vacuumPowerMode:    null,
+                cleaningStrategy:   zone.settings?.cleaningStrategy ?? Dyson360CleaningStrategy.Auto
+            }
+        }))
+    }));
+}
+
 // A Dyson 360 Spot+Scrub device
-export class DysonDevice360SpotScrub extends DysonDevice360Base {
-    static readonly model = { type: 'RB05', number: 'RB05', name: 'Spot+Scrub Ai' };
+export class DysonDevice360SpotScrub extends DysonDevice360ZonesMixin(DysonDevice360Base) {
+    static readonly model = {
+        type:       'RB05',
+        number:     'RB05',
+        name:       'Spot+Scrub Ai',
+        cloudTypes: ['804']
+    };
+
+    readonly roomButtons: { mapId: string; zoneId: string; endpoint: EndpointRoomButton }[] = [];
+
+    override async prepareEndpoints(): Promise<void> {
+        await this.mapsReady;
+        this.endpoint ??= this.makeEndpoint();
+        if (this.roomButtons.length) return;
+        for (const map of this.mapFromMatter.values()) {
+            for (const zone of map.zones) {
+                const id = roomButtonId(this.uniqueId, map.id, zone.id);
+                const name = zone.name.trim() || 'Unnamed room';
+                const endpoint = new EndpointRoomButton(this.log, this.config, {
+                    id,
+                    matterbridgeDeviceName: `${this.deviceName} Room ${name} ${id.slice(-8)}`,
+                    basicInformation: {
+                        ...this.endpoint.options.basicInformation,
+                        uniqueId: id,
+                        nodeLabel: name.substring(0, 32),
+                        productName: 'Dyson Room Clean',
+                        productLabel: `${name} room clean`.substring(0, 64)
+                    }
+                }, async () => {
+                    assertIsDefined(this.commandHandlers);
+                    await this.commandHandlers.startSingleRoom(`Room button ${name}`, {
+                        mapId: map.id,
+                        zoneId: zone.id,
+                        resolveArea: async () => {
+                            await this.updateMaps();
+                            const areaId = this.findAreaId(map.id, zone.id);
+                            if (areaId === null) throw new Error('Room is no longer on the current map');
+                            return areaId;
+                        }
+                    });
+                });
+                this.roomButtons.push({ mapId: map.id, zoneId: zone.id, endpoint });
+            }
+        }
+        this.log.info(`Prepared ${this.roomButtons.length} room-clean buttons using saved Dyson room rules`);
+    }
+
+    override getEndpoints(validatedNames: EntityName[]): EndpointBase[] {
+        return [...super.getEndpoints(validatedNames), ...this.roomButtons.map(button => button.endpoint)];
+    }
+
+    override async updateClusterAttributes(status: DysonMqttStatus<DysonMqttStatus360>): Promise<void> {
+        await super.updateClusterAttributes(status);
+        await Promise.all(this.roomButtons.map(async ({ mapId, zoneId, endpoint }) => {
+            const known = this.findAreaId(mapId, zoneId) !== null && status.persistentMapId === mapId;
+            await endpoint.updateReachable(known && status.reachable && status.mqttState === 'initialised');
+        }));
+    }
+
+    override async stop(): Promise<void> {
+        for (const button of this.roomButtons) button.endpoint.stop();
+        await super.stop();
+    }
 
     override getBatteryPartNumber = () => '975571-01';
 
@@ -156,10 +278,22 @@ export class DysonDevice360SpotScrub extends DysonDevice360Base {
         primaryColor:   BasicInformation.Color.Black
     });
 
-    override getPowerLevelMaps = (): Dyson360PowerLevelMap[] => [];
+    override getPowerLevelMaps = (): Dyson360PowerLevelMap[] => [
+        [Dyson360CleaningStrategy.Auto, RvcCleanMode360.Auto, 'Auto']
+    ];
 
-    override setPowerLevel = (powerLevel: Dyson360EyePowerMode) => this.mqtt.commandSetPowerMode(powerLevel);
-    override getPowerLevel = () => this.mqtt.status.defaultVacuumPowerMode;
+    override setPowerLevel = (powerLevel: Dyson360CleaningStrategy) =>
+        this.mqtt.commandSetCleaningStrategy(powerLevel);
+
+    override getPowerLevel = () => this.mqtt.status.defaultCleaningStrategy;
+
+    // RB05 uses the v2 map endpoint. Preserve its saved cleaning rules.
+    // A Vis Nav programme cannot be assumed to select RB05 rooms correctly.
+    override async getPersistentMapMetadata(): Promise<Dyson360PersistentMapMetadata[]> {
+        if (!this.api) return [];
+        const maps = await this.api.getPersistentMapMetadata360SpotScrub();
+        return normaliseSpotScrubMaps(maps);
+    }
 
     override get compatibilityWarning() { return DYSON360_COMPATIBILITY_SPOTSCRUB; }
 }

@@ -1,554 +1,63 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/wiki/thoukydides/matterbridge-dyson-robot/matterbridge-dyson-robot.svg" style="height: 200px; max-width: 100%;">
-</p>
-<div align=center>
+# Experimental RB05 room controls for Matterbridge
 
-# matterbridge-dyson-robot
+An experimental fork of [matterbridge-dyson-robot](https://github.com/thoukydides/matterbridge-dyson-robot), originally written by Alexander Thoukydides and distributed under the [ISC licence](LICENSE).
 
-[![npm](https://img.shields.io/npm/v/matterbridge-dyson-robot?label=Latest)](https://www.npmjs.com/package/matterbridge-dyson-robot)
-[![npm](https://img.shields.io/npm/dt/matterbridge-dyson-robot?logo=npm&label=Downloads)](https://www.npmjs.com/package/matterbridge-dyson-robot)
-[![npm](https://img.shields.io/npm/dw/matterbridge-dyson-robot?label=)](https://www.npmjs.com/package/matterbridge-dyson-robot)
-[![Build and Lint](https://github.com/thoukydides/matterbridge-dyson-robot/actions/workflows/build.yml/badge.svg)](https://github.com/thoukydides/matterbridge-dyson-robot/actions/workflows/build.yml)
-[![Test](https://github.com/thoukydides/matterbridge-dyson-robot/actions/workflows/test.yml/badge.svg)](https://github.com/thoukydides/matterbridge-dyson-robot/actions/workflows/test.yml)
+This branch packages a working Dyson Spot+Scrub Ai (RB05) integration with individually named room-clean tiles for Apple Home. It is not an official Dyson product, a certified Matter accessory or an official upstream release.
 
-A [Matterbridge](https://github.com/Luligu/matterbridge) plugin that connects [Dyson](https://www.dyson.co.uk/) robot vacuums and air treatment devices  
-to the [Matter](https://csa-iot.org/all-solutions/matter/) smart home ecosystem via their local or cloud MQTT APIs.
+The patch was developed with AI assistance. A sanitised native-command fixture and supervised tests on one robot informed the implementation; they do not establish compatibility with other hardware.
 
-</div>
+## Choose the right version
 
-## Installation
+This fork is based on upstream **1.10.17**, commit `b31b616`. Upstream has since added further RB05 work. Check the [official project](https://github.com/thoukydides/matterbridge-dyson-robot) first: this branch has not been rebased onto its newer code.
 
-This plugin supports multiple methods for configuring and connecting to Dyson robot vacuum and air treatment devices. The following instructions are for cloud-based connection via a MyDyson account and the Dyson AWS IoT MQTT gateway, which is the recommended approach (and the only one compatible with some recent products such as Dyson 360 Vis Nav robot vacuums). See [Alternative Provisioning Methods](#provisioning-methods) (below) for options to connect to supported devices locally.
+The public package is **1.10.17-rb05.12**. Its control logic comes from the live-tested `rb05.11` patch. The public build removes private development material and refreshes dependencies with reported security fixes. Those dependency changes have not been physically retested on a robot.
 
-### Step 1 - Create Account and Connect Devices
-1. Use the MyDyson [iPhone](https://apps.apple.com/gb/app/mydyson/id993135524) or [Android](https://play.google.com/store/apps/details?id=com.dyson.mobile.android) app to create an account.
-1. Add the Dyson robot vacuum cleaner and/or air treatment devices to your Dyson account.
+## What it adds
 
-### Step 2 - Matterbridge Plugin Installation
-1. Open the Matterbridge web interface, e.g. at http://localhost:8283/.
-1. Under *Install plugins* type `matterbridge-dyson-robot` in the *Plugin name or plugin path* search box, then click *Install ⬇️*.
-1. Click *🔄 Restart Matterbridge* to apply the change.
-1. Open the **matterbridge-dyson-robot** *⚙️ Plugin config*.
-1. Ensure that **provisioningMethod** is set to `Connect via AWS IoT gateway / Configure using MyDyson account`.
-1. Under **MyDyson Account Configuration** enter the email address and password that you use with the MyDyson app.
-1. If your account is registered in China then select the `china` option.
-1. Click the <kbd>START AUTH</kbd> button.
-1. You should receive a **Log in to your MyDyson App** email message containing a code. Enter that code and click the <kbd>SUBMIT CODE</kbd> button.
-1. When you see messages indicating that the account has been authorised click <kbd>CONFIRM</kbd> to save the configuration, and restart Matterbridge.
-1. Pair any robot vacuum devices individually with the Matter controller using their QR codes.
+- One momentary On/Off tile for each room on the robot's current Dyson map, named from the Dyson app.
+- Room starts using the robot's existing saved cleaning rules. A tile does not override vacuum power, water level, cleaning type or pass counts.
+- Fresh-state checks, room identity validation and rejection of busy, paused, locked, offline or attention-required states.
+- Standard Matter activity phases including locating, vacuuming, mopping, travelling, dock return and dock maintenance.
 
-<details>
-<summary>Command Line Installation</summary>
+An accepted tile request turns back off after about one second. **Off does not stop the robot.** Use the main robot's Pause or Return to dock control.
 
-### Installation using Command Line
-1. Stop Matterbridge:  
-   `sudo systemctl stop matterbridge`
-1. Install the plugin:  
-   `npm install -g matterbridge-dyson-robot`
-1. Register it with Matterbridge:  
-   `sudo -u matterbridge matterbridge -add matterbridge-dyson-robot`
-1. Restart Matterbridge:  
-   `sudo systemctl start matterbridge`
+## Apple Home and Siri
 
-MyDyson account authorisation cannot be completed via the command line. See [Alternative Provisioning Methods](#provisioning-methods) (below) for token acquisition details or other provisioning methods that do not require MyDyson account access.
+Pair both the Matterbridge bridge, which contains the room tiles, and the standalone robot when `enableServerRvc` is enabled. Then create a scene with exactly one room tile set to **Turn On**.
 
-#### Example `matterbridge-dyson-robot.config.json`
+For example, a scene called “Clean Room A” can be invoked with “Hey Siri, Clean Room A”. If you name a scene “Mop Room A”, first configure that room's wet-cleaning rule in MyDyson. The scene name itself does not request a different cleaning mode.
 
-```JSON
-{
-    "name":                     "matterbridge-dyson-robot",
-    "type":                     "DynamicPlatform",
-    "version":                  "1.0.0",
-    "provisioningMethod":       "Remote Account",
-    "dysonAccount": {
-        "email":                "ripley@xeno.clean",
-        "password":             "NoMoreDust!426",
-        "china":                false
-    },
-    "enableServerRvc":          true,
-    "simpleModeTagsRvc":        true,
-    "wildcardTopic":            true,
-    "blackList":                [],
-    "whiteList":                [],
-    "entityBlackList":          ["Composed Air Purifier", "Humidity Sensor", "Temperature Sensor"],
-    "entityWhiteList":          [],
-    "deviceEntityBlackList":    {},
-    "debug":                    false,
-    "debugFeatures":            [],
-    "unregisterOnShutdown":     false
-}
+For room scenes, do not use the main robot's Start action. With no room selected, that action can start a whole-home clean.
+
+Apple Home chooses how to render Matter status. It may show generic wording such as “Travelling” or “Cleaning Mop Pad” instead of this plugin's more descriptive phase labels.
+
+## Install and recover
+
+Read [the installation, safety and rollback guide](docs/RB05.md) before installing. Download the `.tgz` package from [this fork's GitHub Releases page](https://github.com/pjbate/matterbridge-dyson-robot/releases), verify its SHA-256 and install it with the same account and npm prefix as Matterbridge.
+
+This package deliberately retains the original plugin name for compatibility. Do not install the official and experimental versions simultaneously. A normal plugin update may replace this fork.
+
+There is no npm registry release from this fork. Registry publication is disabled with `private: true`.
+
+## Evidence and limitations
+
+On one RB05, a single-room vacuum command was physically verified on an earlier patch revision. A macOS Apple Home scene using a dedicated room tile on `rb05.11` then completed a saved vacuum-and-mop job, returned to the dock and began dock maintenance.
+
+The public build has offline regression tests for commands, packet shape, safety checks, room identity, Matter command handling and activity phases. See [validation and compatibility notes](docs/VALIDATION.md).
+
+Other households, all room rules, other robot models, consumables, network interruption recovery and the newer upstream branch have not been live-tested. This is a supervised experimental release, not a general compatibility guarantee.
+
+## Development and credit
+
+```sh
+npm ci --ignore-scripts
+npm run build
+npm run lint
+npm run test:rb05
 ```
 
-</details>
-<details>
-<summary>Advanced Configuration Options</summary>
+Use a Node version supported by `package.json`. The public package requires Matterbridge 3.10.12 or later and has an exact 3.10.12 development dependency for offline checks. Offline tests use fake transport and synthetic identifiers. They do not start or advertise a Matter server and do not send commands to a physical robot.
 
-### Advanced Configuration
+The original author's copyright, licence and funding information are retained. Upstream [does not accept pull requests](https://github.com/thoukydides/.github/blob/master/CONTRIBUTING.md), so relevant findings should be shared with a link on [the existing RB05 issue](https://github.com/thoukydides/matterbridge-dyson-robot/issues/46).
 
-You can include additional settings in `matterbridge-dyson-robot.config.json` to customise the behaviour or enable special debug features:
-
-| Key                     | Default            | Description
-| ----------------------- | ------------------ | ---
-| `name`<br>`type`<br>`version` | n/a          | These are managed by Matterbridge and do not need to be set manually.
-| `provisioningMethod`    | `"Remote Account"` | Selects how the plugin is configured and how it connects to the Dyson devices. See [Alternative Provisioning Methods](#provisioning-methods) (below) for details of each option.
-| `devices`               | `[]`               | Local network and MQTT configuration for each Dyson device when not using the `Remote Account` provisioning method. See below for details.
-| `enableServerRvc`       | `true`             | When set to `false` all devices are exposed via a single Matter bridge. Setting it to `true` exposes any robot vacuum devices as standalone Matter nodes using Matterbridge's `server` mode, with the Matter bridge only used for any air treatment devices. This improves compatibility with Matter controllers such as the Apple Home app, but requires each robot vacuum to be paired individually.
-| `simpleModeTagsRvc`     | `true`             | When set to `false` all relevant ModeTag values are listed for each cleaning mode (e.g. `MaxBoost` might be tagged as *Max*, *Vacuum*, and *Day*). When set to `true` only the single most descriptive ModeTag is published for each cleaning mode. This improves compatibility with Matter controllers such as the Apple Home app, which do not handle multiple mode tags gracefully.
-| `logMapStyle`           | `"Matterbridge"`   | Select how robot vacuum maps are rendered in the log at the end of cleans. When set to `"Matterbridge"` the map is restricted to glyphs that render correctly in the Matterbridge frontend. Change to `Monospaced` for more detailed and clearer maps if the log will be viewed using a monospaced font. Set to `"Off"` to disable logging of maps.
-| `wildcardTopic`         | `true`             | When set to `false` the plugin only subscribes to the essential status MQTT topic(s) appropriate for each device. Setting it to `true` additionally subscribes to the command topic (for AWS IoT connections) or to the `#` wildcard topic (for local network connections), receiving additional messages published by the devices or echoed by the MQTT brokers. This is useful for discovering new topics, seeing the commands issued by the MyDyson app (only some commands to robot vacuums), and verifying correct `root_topic` and `username` settings.
-| `blackList`             | `[]`               | If the list is not empty, then any robot vacuum and air treatment devices with matching serial numbers will not be exposed as Matter devices.
-| `whiteList`             | `[]`               | If the list is not empty, then only robot vacuum and air treatment devices with matching serial numbers (and not on the `blacklist`) will be exposed as Matter devices.
-| `entityBlackList`       | `["Composed Air Purifier", "Humidity Sensor", "Temperature Sensor"]` | If the list is not empty, then any endpoint device types listed will be excluded. This applies to all air treatment devices. It does not affect robot vacuum devices.
-| `entityWhiteList`       | `[]`               | If the list is not empty, then only endpoint device types on that list (and not on the `entityBlackList`) will be included. This applies to all air treatment devices. It does not affect robot vacuum devices.
-| `deviceEntityBlackList` | `{}`               | Per-device `entityBlackList`-style selection of endpoints. This only applies to air treatment devices. It is an object where the keys are device serial numbers, and the values are the list of endpoint device types that will be excluded for that device.
-| `debug`                 | `false`            | Sets the logger level for this plugin to *Debug*, overriding the global Matterbridge logger level setting.
-| `debugFeatures`         | `[]`               | Miscellaneous options to control the information logged. None of these should be set unless you are investigating a compatibility issue, MQTT message error, or other problem.
-| `unregisterOnShutdown`  | `false`            | Unregister all exposed devices on shutdown. This is used during development and testing; do not set it for normal use.
-
-The black and white lists control which robot vacuum and air treatment devices are exposed as Matter devices. Robot vacuums are always exposed as a simple Matter device on a single endpoint, but air treatment devices are implemented as multiple devices and endpoints that can be individually included or excluded. Devices and endpoints are exposed only if they pass all specified whitelist and blacklist filters. Whitelist inclusion restricts the candidates, while blacklist entries exclude matching devices or endpoints even if whitelisted. This applies cumulatively across global and per-device filters. Devices are identified via their serial numbers (the same as their MQTT username) and endpoints are identified using their Matter device type:
-* `Air Purifier`
-* `Air Quality Sensor`
-* `Composed Air Purifier` (a composed device consisting of an `Air Purifier` with all other relevant device types as children)
-* `Humidity Sensor`
-* `Temperature Sensor`
-* `Thermostat`
-
-The supported `debugFeatures` are:
-
-| Debug Feature               | Description
-| --------------------------- | ---
-| `Log Endpoint Debug`        | Sets the `debug` flag to the Matterbridge/Matter.js endpoint implementation.
-| `Log API Headers`           | Logs HTTP headers for MyDyson API requests. Rarely useful. (Requires *Debug* level logging.)
-| `Log API Bodies`            | Logs message bodies for MyDyson API requests. Useful for diagnosing interoperability issues. (Requires *Debug* level logging.)
-| `Log MQTT Client`           | Enables (extremely) verbose debug logging from the low-level MQTT client. Rarely useful, unless the plugin is unable to establish or maintain a connection to the Dyson device. (Requires *Debug* level logging.)
-| `Log MQTT Payloads`         | Logs every MQTT payload that is sent or received. Useful for diagnosing interoperability issues or identifying how to control new features. (Requires *Debug* level logging.)
-| `Log MQTT Payloads as JSON` | Similar to `Log MQTT Payloads` except that payloads are logged in raw JSON format, without any truncation or special formatting. (Requires *Debug* level logging.)
-| `Log Serial Numbers`        | By default product serial numbers (a.k.a. MQTT usernames) and passwords are automatically redacted in the log. This setting logs serial numbers verbatim.
-| `Log Debug as Info`         | Redirect *Debug* level logging to *Info* level. This makes it visible in the Matterbridge frontend.
-
-</details>
-<a name="provisioning-methods"></a>
-<details>
-<summary>Alternate Provisioning Methods</summary>
-
-### Provisioning Methods
-
-| Provisioning Method | Connection Via... | Configuration Using...    | IP Addresses / Hostnames | MQTT Credentials    | Compatibility        |
-| ------------------- | ----------------- | ------------------------- | ------------------------ | ------------------- | -------------------- |
-| `Remote Account`    | ☁️ AWS IoT Gateway | ☺️ MyDyson account         | ✅ Automatic              | ✅ Automatic         | ✅ All devices        |
-| `Local Account`     | 🏠 Local Network   | 😐 MyDyson account         | ❌ Manual configuration   | ✅ Automatic         | ❌ Not recent devices |
-| `Local Wi-Fi`       | 🏠 Local Network   | 📡 Wi-Fi Setup credentials | ❌ Manual configuration   | ❌ Wi-Fi Setup label | ❌ Not recent devices |
-| `Local MQTT`        | 🏠 Local Network   | ⚠️ MQTT credentials        | ❌ Manual configuration   | ❌ Using `opendyson` | ❌ Not recent devices |
-
-The recommended `Remote Account` provisioning method routes all MQTT messages via the AWS IoT gateway. No per-device configuration is required with this method.
-
-The other provisioning methods enable direct local connection to the robot vacuum and air treatment devices, but are not supported by some recent products (such as the Dyson 360 Vis Nav and Dyson Purifier Big + Quiet Formaldehyde). These methods require manual configuration of the local network IP addresses or hostnames, and (for some methods) the credentials used to authorise the MQTT connection.
-
-#### `Remote Account` (Connect via AWS IoT Gateway / Configure using MyDyson account)
-
-```JSON
-{
-    "provisioningMethod":       "Remote Account",
-    "dysonAccount": {
-        "email":                "neo@matrix.clean",
-        "password":             "ThereIsNoDust1",
-        "china":                false
-    }
-}
-```
-
-The `Remote Account` provisioning obtains all required details from the MyDyson account. Connection to the devices is via the AWS IoT gateway, with new credentials retrieved from the MyDyson account for each (re)connection. No other configuration is required.
-
-As an alternative to authorising MyDyson account access using an email, password, and OTP code, it is possible to use a previously authorised access token (e.g. if using `opendyson` it can be found in `~/.config/libdyson/config.yml`):
-```JSON
-{
-    "provisioningMethod":       "Remote Account",
-    "dysonAccount": {
-        "token":                "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF-1",
-        "china":                false
-    }
-}
-```
-
-The access token may also be supplied via a `DYSON_TOKEN` environment variable.
-
-#### `Local Account` (Connect via Local Network / Configure using MyDyson account)
-
-```JSON
-{
-    "provisioningMethod":       "Local Account",
-    "dysonAccount": {
-        "email":                "spock@logic.clean",
-        "password":             "LiveLong&Vacuum",
-        "china":                false
-    },
-    "devices": [{
-        "serialNumber":         "ST1-FD-NCC1701E",
-        "host":                 "enterprise-vac.local",
-        "port":                 1883
-    }, {
-        "serialNumber":         "SK1-NY-TRM8008X",
-        "host":                 "192.168.0.100",
-        "port":                 1883
-    }],
-}
-```
-
-The `Local Account` provisioning retrieves MQTT credentials and device names from the MyDyson account, but requires manual configuration of each device's IP address or hostname. The device's serial number is used to uniquely identify each device.
-
-The MyDyson account is accessed each time that the plugin is (re)started. All subsequent access is restricted to the local network.
-
-#### `Local Wi-Fi` (Connect via Local Network / Configure using Wi-Fi Setup credentials)
-
-```JSON
-{
-    "provisioningMethod":       "Local Wi-Fi",
-    "devices": [{
-        "name":                 "Katniss Everclean",
-        "host":                 "katniss.local",
-        "port":                 1883,
-        "ssid":                 "360EYE-KE1-RE-DAH1234C",
-        "password":             "abcdefgh"
-    }, {
-        "name":                 "Hoth Breeze",
-        "host":                 "192.168.0.100",
-        "port":                 1883,
-        "ssid":                 "DYSON-HB1-ES-TAT9001F-475",
-        "password":             "abcdefgh"
-    }],
-}
-```
-
-The `Local Wi-Fi` provisioning uses the Wi-Fi setup credentials to derive the MQTT credentials. Manual configuration is required for the credentials, IP address or hostname, and a friendly name (used as the Matter *NodeLabel*), for each device.
-
-This provisioning method does not use the MyDyson account or any other cloud services. Only local network access is used.
-
-The Wi-Fi setup information can be found on a label located:
-- behind the clean bin of robot vacuums,
-- underneath the base of air treatment devices, or
-- attached to the operating manual.
-
-The **Product SSID** (`ssid`) and **Product Wi-Fi Password** (`password`) are case-sensitive and must be entered exactly as shown on the label.
-
-#### `Local MQTT` (Connect via Local Network / Configure using MQTT credentials)
-
-```JSON
-{
-    "provisioningMethod":       "Local MQTT",
-    "devices": [{
-        "name":                 "House Elf Hoover",
-        "serialNumber":         "HE1-HP-WIZ7654M",
-        "host":                 "dobbie.local",
-        "port":                 1883,
-        "password":             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/ABCDEFGHIJKLMNOPQRSTUV==",
-        "rootTopic":            "276"
-    }, {
-        "name":                 "Whisper of Valinor",
-        "serialNumber":         "WV1-SI-ELF1984H",
-        "host":                 "192.168.0.100",
-        "port":                 1883,
-        "password":             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/ABCDEFGHIJKLMNOPQRSTUV==",
-        "rootTopic":            "455"
-    }],
-}
-```
-
-The `Local MQTT` provisioning requires manual configuration of the MQTT credentials, as well as the IP address or hostname, and a friendly name (used as the Matter *NodeLabel*), for each device.
-
-This provisioning method does not use the MyDyson account or any other cloud services. Only local network access is used.
-
-The easiest way to obtain the MQTT credentials is by using the [`opendyson`](https://github.com/libdyson-wg/opendyson) tool:
-1. Install `opendyson`, e.g. if `Go` is installed and configured:  
-   `go install github.com/libdyson-wg/opendyson`
-1. Login to your MyDyson account:  
-   `opendyson login`
-1. Identify devices and retrieve their connection credentials:  
-   `opendyson devices`
-
-The values required to configure this plugin are:
-
-| `opendyson devices` Output | Plugin Configuration |
-| -------------------------- | -------------------- |
-| `mqtt` → `username`        | `serialNumber`       |
-| `mqtt` → `password`        | `password`           |
-| `mqtt` → `root_topic`      | `rootTopic`          |
-
-</details>
-
-## Functionality
-
-The following sections describe the functionality exposed to Matter. Different ecosystems vary in their level of support; many Matter controllers will only provide access to a limited subset of this functionality.
-
-<details>
-<summary>Robot Vacuums</summary>
-
-Each robot vacuum appears as a standalone Matter device with a single endpoint. This supports basic start/stop/pause/resume control and changing power mode. Detailed status information is provided for the robot vacuum's activity, battery, and any faults. Zone cleaning is also supported for Dyson 360 Vis Nav devices (only).
-
-#### Robotic Vacuum Cleaner Device
-
-- **RVC Run Mode** cluster:
-  - `Idle`: Abort cleaning and return to dock (same as `GoHome`).
-  - `Cleaning`: Start a full-clean.
-  - `Mapping`: Status only (use the MyDyson app to initiate mapping and configure zones).
-
-- **RVC Clean Mode** cluster:
-  | Mode       | Dyson 360 Eye | Dyson 360 Heurist | Dyson 360 Vis Nav | Dyson Spot+Clean |
-  | ---------- | :-----------: | :---------------: | :---------------: | :--------------: |
-  | `Quiet`    | Quiet         | Quiet             | Quiet             | Quiet            |
-  | `Quick`    |               |                   | Quick             | Quick            |
-  | `High`     |               | High              |                   |                  |
-  | `MaxBoost` | Max           | Max               | Boost             | Boost            |
-  | `Auto`     |               |                   | Auto              | Auto             |
-
-**RVC Operational State** cluster:
-  - `Pause`: Pause cleaning or mapping activity.
-  - `Resume`: Resume from a paused state.
-  - `GoHome`: Abort cleaning and return to dock (same as `Idle`).
-  - *OperationalState* (`Stopped`, `Running`, `Paused`, `Error`, `SeekingCharger`, `Charging`, or `Docked`).
-  - Any active fault.
-
-**Power Source** cluster:
-  - Battery charge level and charging status.
-  - Any active fault.
-
-**Service Area** cluster (currently only implemented for Dyson 360 Vis Nav):
-  - `SelectAreas`: Start a zone clean of specified areas (using the per-zone power modes configured in the MyDyson app).
-  - Lists of maps and zones.
-  - Current zone and per-zone cleaning status.
-
-</details>
-
-<details>
-<summary>Air Treatment Devices</summary>
-
-This plugin implements multiple Matter device types to support most of the functionality and sensors of air treatment devices:
-- **Air Purifier**
-- **Air Quality Sensor**
-- **Humidity Sensor**
-- **Temperature Sensor**
-- **Thermostat** (*Heat+Cool* only)
-
-You can expose each endpoint (sensor, thermostat, purifier) as a standalone Matter device, or group them into a single composed device with multiple endpoints. Some Matter controllers may display multiple instances of the same sensor due to overlap between standalone and composed devices. Use the black/white lists to control which devices are exposed.
-
-Only one **Air Purifier** and one **Thermostat** can be exposed per physical device:
-- If the standalone **Air Purifier** (`Air Purifier`) is enabled then the composed device (`Composed Air Purifier`) is disabled implicitly.
-- If the standalone **Thermostat** (`Thermostat`) device is enabled, then heating controls are not included in any composed device.
-
-Sensor devices can be duplicated, e.g. the measured temperature may be reported simultaneously in all of these:
-- Standalone **Air Quality Sensor** device 
-  - **Temperature Measurement** cluster > *MeasuredValue* attribute
-- Standalone **Temperature Sensor** device
-  - **Temperature Measurement** cluster > *MeasuredValue* attribute
-- Composed **Air Purifier** device
-  - Child **Air Quality Sensor** device 
-    - **Temperature Measurement** cluster > *MeasuredValue* attribute
-  - Child **Temperature Sensor** device
-    - **Temperature Measurement** cluster > *MeasuredValue* attribute
-  - Child (or standalone) **Thermostat** device
-    - **Thermostat** cluster > *Local Temperature* attribute
-
-#### Air Purifier Device
-
-- **On/Off** cluster:
-  - Turn fan on/off (preserving speed setting)
-- **Fan Control** cluster:
-  - Turn fan on/off (losing speed setting)
-  - Fan speed or auto
-  - Fan direction (not *(Hot+)Cool Link*)
-  - Night mode = `SleepWind`
-  - Side-to-side oscillation (not *Big+Quiet*) = `RockLeftRight`
-  - "Breeze" (*Humidify+Cool* only) = `NaturalWind`
-  - Tilt "breeze" oscillation (*Big+Quiet* only) = `RockUpDown`
-- **HEPA Filter Monitoring** cluster:
-  - Remaining HEPA (or combined) filter life
-- **Activated Carbon Filter Monitoring** cluster:
-  - Remaining activated carbon filter life (*Big+Quiet* only)
-
-#### Air Quality Sensor Device
-
-- **Air Quality** cluster:
-  - Synthesized qualitative air quality:
-    1. Each available pollutant measurement (including the *Pure (Hot+)Cool Link* qualitative particulate measurement) is categorised as Good, Fair, Moderate, Poor, Very Poor, or Extremely Poor. This uses US EPA AQI breakpoints, WHO guidelines, other guidelines, and arbitrary mappings of qualitative measurements.
-    1. The worst classification is used as the overall air quality.
-- **Temperature Measurement** cluster:
-  - Measured temperature, if available
-- **Relative Humidity Measurement** cluster:
-  - Measured relative humidity (%), if available
-- **Total Volatile Organic Compounds Concentration Measurement** cluster:
-  - Measured VOC (qualitative), if available
-- **Carbon Dioxide Concentration Measurement** cluster:
-  - Measured CO2 (ppm), if available
-- **Nitrogen Dioxide Concentration Measurement** cluster:
-  - Measured NOx (qualitative), if available
-- **Formaldehyde Concentration Measurement** cluster:
-  - Measured Formaldehyde level (µg/m³), if available
-- **PM2.5 Concentration Measurement** cluster:
-  - Measured small particulates (µg/m³), if available
-- **PM10 Concentration Measurement** cluster:
-  - Measured large particulates (µg/m³), if available
-
-#### Humidity Sensor Device
-
-- **Relative Humidity Measurement** cluster:
-  - Measured relative humidity, if available
-
-#### Temperature Sensor Device
-
-- **Temperature Measurement** cluster:
-  - Measured temperature, if available
-
-#### Thermostat Device (*Heat+Cool* only)
-
-- **Thermostat** cluster:
-  - Enable/disable heating
-  - Target temperature
-  - Measured temperature, if available
-
-</details>
-
-## Compatibility
-
-This plugin has been tested with the following devices:
-| Description                               | Model     | MQTT Root Topic | Firmware                | Tested By
-| ----------------------------------------- | :-------: | :-------------: | :---------------------: | ---
-| Dyson 360 Eye robot vacuum                | RB01      | `N223`          | `11.3.5.10`             | ✅ Developer
-| Dyson 360 Vis Nav robot vacuum            | RB03      | `277`           | `RB03PR.01.08.006.5079` | ✅ Developer
-| Dyson Pure Humidify+Cool                  | PH01      | `358`           |                         | 📄 MQTT logs
-| Dyson Pure Humidify+Cool Cryptomic        | PH02      | `358`           | `ECG2PF.46.00.007.0003` | 📄 MQTT logs
-| Dyson Purifier Humidify+Cool Formaldehyde | PH04      | `358E`          | `ECG2PF.47.01.000.0005` | 📄 MQTT logs
-| Dyson Purifier Humidify+Cool Formaldehyde | PH04      | `358K`          | `ECG2PF.49.03.000.0020` | 📄 MQTT logs
-| Dyson Pure Cool                           | TP04      | `438`           | `ECG2PF.02.06.003.0002` | ✅ [smuteau](https://github.com/smuteau) ([#1](https://github.com/thoukydides/matterbridge-dyson-robot/issues/1))
-| Dyson HEPA Purifier Cool Formaldehyde     | TP09      | `438E`          |                         | ✅ [Nagromdark](https://github.com/Nagromdark) ([#2](https://github.com/thoukydides/matterbridge-dyson-robot/issues/2))
-| Dyson Pure Cool                           | TP11/PC1  | `438M`          |                         | 📄 MQTT logs
-| Dyson Pure Hot+Cool Link                  | HP02      | `455`           | `21.04.03`              | ✅ Developer
-| Dyson Pure Cool Link Desk                 | DP01      | `469`           |                         | 📄 MQTT logs
-| Dyson Pure Cool Link                      | TP02      | `475`           | `21.04.03`              | ✅ Developer
-| Dyson Pure Cool Desk                      | DP04      | `520`           |                         | 📄 MQTT logs
-| Dyson Pure Hot+Cool                       | HP04/HP06 | `527`           |                         | 📄 MQTT logs
-| Dyson Purifier Hot+Cool                   | HP07      | `527E`          |                         | 📄 MQTT logs
-| Dyson Purifier Hot+Cool Formaldehyde      | HP09      | `527K`          |                         | 📄 MQTT logs
-| Dyson Purifier Hot+Cool                   | HP1/HP11  | `527M`          |                         | ✅ [FireHelmet](https://github.com/FireHelmet) ([#14](https://github.com/thoukydides/matterbridge-dyson-robot/issues/14))
-| Dyson Purifier Big+Quiet Formaldehyde     | BP03      | `664`           | `0664PF.00.08.005.0002` | ✅ Developer
-
-It should also work with other Dyson robot vacuums and air treatment devices, although some modifications may be required for full compatibility.
-
-Matter controllers vary in their support for different device types. This plugin is only tested with Apple HomeKit and the Apple Home app.
-
-### Matter Limitations
-
-The following functionality is not supported by this plugin due to lack of appropriate device types, clusters, or attributes, in the Matter 1.4 specification:
-<details>
-<summary>Air Purifiers</summary>
-
-* Fan diffuser/focus *(Pure (Hot+)Cool Link)*
-* Humidification *(Pure Humidify+Cool)*
-* Oscillation angles *(Pure (Hot)+Cool family)* or tilt angles *(Big+Quiet family)*
-* Sleep timer
-* Faults
-</details>
-
-### Apple Home Limitations
-
-The Apple Home app in iOS/iPadOS 18.4 and macOS Sequoia has limited Matter support and exhibits multiple idiosyncrasies.
-
-<a name="apple-home-rvc"></a>
-<details>
-<summary>Robot Vacuums</summary>
-
-The Apple Home app expects each robot vacuum to be a standalone, individually-paired Matter node implementing a single endpoint. However, by default Matterbridge acts as a Matter bridge - either a single bridge node for all plugins (*bridge* mode), or a separate bridge node per plugin (*childbridge* mode) - with each plugin's device exposed as an additional child endpoint. The `enableServerRvc` configuration option enables use of Matterbridge's `server` mode for any robot vacuum devices, ensuring full compatibility with the Home app.
-
-For cleaning (power) modes the Matter specification encourages tagging each mode with all relevant ModeTag values to describe its characteristics and usage. However, the Home app displays the list of all ModeTag values (e.g. *Deep Clean*, *Low Noise*) rather than the advertised modes (*Quiet*, *Max*, etc) reported by the robot vacuum. The `simpleModeTagsRvc` configuration option selects the single most descriptive ModeTag for each cleaning mode to improve the Home app user interface experience.
-</details>
-<details>
-<summary>Air Purifiers</summary>
-
-The Apple Home app only supports simple Matter devices correctly. When multiple devices are composed into a single bridged device, or subset device types are included, the Home app exhibits multiple issues:
-* The device icon can be for any of the composed or subset device types, instead of selecting the most relevant (the first recognised device type on the parent endpoint), e.g. an **Air Purifier** device may be randomly shown as a **Fan Device** or **Air Quality Sensor** instead.
-* Controls may be duplicated in the user interface if they can correspond to multiple overlapping device types, e.g. two fan speed sliders are shown if a device describes itself as both an **Air Purifier** and a **Fan** device.
-* Functionality is often reduced, e.g. an **Air Purifier** incorporating an **Air Quality** device results in the *Auto* mode, fan oscillation controls, and all sensor measurements, being hidden.
-
-For these reasons, this plugin defaults to bridging each Matter device type separately. A composed device can be selected instead by setting:
-```JSON
-{
-    "entityWhiteList": ["Composed Air Purifier"],
-    "entityBlackList": []
-}
-```
-
-The Apple Home app does not display any of the following attributes despite their inclusion in the Matter specification and support via the HomeKit Accessory Protocol:
-* HEPA or carbon filter status.
-* Formaldehyde, NOx, or VOC sensor measurements.
-
-Additionally, when sensor readings are unavailable (i.e. their Matter attributes are set to `null`) the Home App incorrect displays them as zero (e.g. `0ppm` or `0.0°`).
-</details>
-
-## Changelog
-
-All notable changes to this project are documented in [`CHANGELOG.md`](CHANGELOG.md).
-
-## Reporting Issues
-          
-If you have discovered an issue or have an idea for how to improve this project, please [open a new issue](https://github.com/thoukydides/matterbridge-dyson-robot/issues/new/choose) using the appropriate issue template.
-
-Most device-specific issues cannot be meaningfully investigated without a **debug log file**, captured with the `Log MQTT Payloads as JSON` debug option enabled. Issues related to robot vacuum devices (especially 360 Heurist, 360 Vis Nav, or Spot+Scrub Ai) also require the `Log API Bodies` debug option enabled.
-
-<details>
-<summary>Reporting Issues with Unsupported or Recently Released Products</summary>
-
-#### MQTT Log for All Product Types
-
-Most Dyson connected products use MQTT messages to control their basic functionality and provide status. Please use the `opendyson` tool to capture a full MQTT message log whilst exercising as much of the device's functionality as possible, e.g. adjusting every setting of an air purifier or performing a full clean with a robot vacuum:
-
-- Install `opendyson`, e.g. if `Go` is installed and configured:
-  `go install github.com/libdyson-wg/opendyson`
-- Login to your MyDyson account:
-  `opendyson login`
-- Identify devices and retrieve their connection credentials:
-  `opendyson devices`
-- Capture an MQTT message log:
-  `opendyson listen SERIALNUMBER` (with the device's actual serial number substituted)
-- Paste or attach the output of `opendyson devices` and `opendyson listen` into the **Additional Information** section of the issue (as text, not a screenshot).
-
-#### API HTTPS Log for Robot Vacuums
-
-Dyson robot vacuums perform many operations (such as controlling zone cleaning and viewing cleaned area maps) via the MyDyson API instead of using MQTT messages. Please use a tool like Proxyman to capture examples of these HTTPS requests and their responses:
-
-- Install [Proxyman](https://apps.apple.com/gb/app/proxyman/id1551292695). (The free edition is sufficient; the Proxyman Pro in-app purchases are not required.)
-- Run `Proxyman`, and on its **More** tab:
-  - Follow the "How to setup" instructions to install and trust the root certificate.
-  - Under **SSL Proxying List** add `appapi.cp.dyson.com` and enable it.
-  - Start the VPN. Ensure that `Ready to intercept` is displayed.
-- Launch the MyDyson app.
-- On Proxyman's **Home** tab search for and select `appapi.cp.dyson.com`. Ensure that requests are being captured and decoded.
-- Switch back to the MyDyson app and try all of the robot vacuum's basic functionality, including:
-  - Change the power level for an "All areas" clean.
-  - Start an "All areas" clean.
-  - Change the power level for a zone.
-  - Start a clean of a single zone.
-  - View the most recent cleaned area map.
-- Return to Proxyman, and click on the cog icon above the list of messages, select **Share**, and then **Save to Files**. This will create a `.proxymanlogv2` file (a Zip archive containing a JSON representation of each captured request). Attach this to the issue. (Ensure that you attach the actual file, not a screenshot.)
-</details>
-
-### Pull Requests
-
-As explained in [`CONTRIBUTING.md`](https://github.com/thoukydides/.github/blob/master/CONTRIBUTING.md), this project does **NOT** accept pull requests. Any PRs submitted will be closed without discussion.
-
-## Legal
-
-This is an independent open-source project that is not affiliated with, endorsed by, or officially supported by [Dyson Technology Limited](https://www.dyson.co.uk/). This plugin interacts with Dyson devices and cloud services using APIs that have been discovered through reverse engineering, as permitted under Section 50B of the UK Copyright, Designs and Patents Act 1988, which implements the EU Directive 2009/24/EC on the legal protection of computer programs. These APIs are not publicly documented or supported by Dyson.
-
-This plugin enables essential status monitoring and control interoperability between supported Dyson devices and home automation ecosystems, while making conservative use of the Dyson cloud services, typically resulting in fewer API requests than the official Dyson app.
-
-However, Dyson may change their APIs or terms of service at any time, potentially rendering this plugin non-functional or causing unexpected behaviour. By using this plugin, you acknowledge and accept the inherent risks associated with interacting with unofficial APIs. Your use of this plugin is entirely at your own risk. If Dyson chooses to offer an official API or integration mechanism, this project will aim to migrate to that instead.
-
-Dyson, Dyson Cool, Dyson Hot, Dyson Hot+Cool, Dyson Pure, Dyson Pure Cool, Dyson Pure Cool Link, Dyson Pure Hot+Cool Link, Dyson Pure Humidify+Cool, Dyson 360 Eye, Dyson 360 Heurist, Dyson 360 Vis Nav, and Dyson Spot+Clean, are trademarks of Dyson Technology Limited.
-
-### ISC License (ISC)
-
-<details>
-<summary>Copyright © 2025-2026 Alexander Thoukydides</summary>
-
-> Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
->
-> THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-</details>
+See [contribution guidance](CONTRIBUTING.md) for sanitised reports about this experimental fork.

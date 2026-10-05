@@ -180,7 +180,8 @@ export const rvcOperationalStateBehavior =
         }
     });
 export function createRvcOperationalStateClusterServer(
-    { behaviors }: Endpoint
+    { behaviors }: Endpoint,
+    statusPhases?: string[]
 ): void {
     behaviors.require(rvcOperationalStateBehavior, {
         // Constant attributes
@@ -191,14 +192,18 @@ export function createRvcOperationalStateClusterServer(
             { operationalStateId: RvcOperationalState.OperationalState.Error },
             { operationalStateId: RvcOperationalState.OperationalState.SeekingCharger },
             { operationalStateId: RvcOperationalState.OperationalState.Charging },
-            { operationalStateId: RvcOperationalState.OperationalState.Docked }
+            { operationalStateId: RvcOperationalState.OperationalState.Docked },
+            ...(statusPhases ? [
+                { operationalStateId: RvcOperationalState.OperationalState.EmptyingDustBin },
+                { operationalStateId: RvcOperationalState.OperationalState.CleaningMop }
+            ] : [])
         ],
         // Variable attributes (with dummy defaults)
         operationalState:       RvcOperationalState.OperationalState.Stopped,
         operationalError:       RvcOperationalStateError.toStruct(),
+        phaseList:              statusPhases ?? null,
+        currentPhase:           statusPhases ? 0 : null,
         // Unsupported attributes
-        phaseList:              null,
-        currentPhase:           null,
         countdownTime:          null
     });
 }

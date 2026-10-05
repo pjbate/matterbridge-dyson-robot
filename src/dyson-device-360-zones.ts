@@ -20,6 +20,7 @@ import { SelectAreaError } from './error-360.js';
 import { Endpoint360, formatAreaName } from './endpoint-360.js';
 import { Device360CommandHandlers } from './dyson-device-360-commands.js';
 import { logError } from './log-error.js';
+import { isDeepStrictEqual } from 'node:util';
 
 // Mapping of Dyson area icons/names to Matter common areas
 type LocationType = number | null;
@@ -72,14 +73,36 @@ export function DysonDevice360ZonesMixin<TBase extends AbstractConstructor<Dyson
         nextMapId = 1;
         nextAreaId = 1;
 
+        // Initial cloud map fetch, awaited before the Matter endpoint starts
+        mapsReady: Promise<void>;
+
         // Mixin constructor
         constructor(...args: any[]) {
             super(...args as ConstructorParameters<TBase>);
 
             // Perform an initial fetch of the persistent maps
-            void (async () => {
+            this.mapsReady = (async () => {
                 try { await this.updateMaps(); } catch (err) { logError(this.log, 'Retrieving maps', err); }
             })();
+        }
+
+        // Ensure the room list is populated even if MQTT is temporarily offline.
+        override async start(): Promise<void> {
+            await this.mapsReady;
+            await super.start();
+            await this.endpoint?.updateServiceArea({
+                currentArea:    null,
+                progress:       [],
+                selectedAreas:  [],
+                supportedAreas: this.supportedAreas,
+                supportedMaps:  this.supportedMaps
+            });
+        }
+
+        // Retrieve map metadata. Models can override this for newer Dyson APIs.
+        async getPersistentMapMetadata(): Promise<Dyson360PersistentMapMetadata[]> {
+            if (!this.api) return [];
+            return this.api.getPersistentMapMetadata360();
         }
 
         // Attach command handlers to the endpoint
@@ -104,7 +127,7 @@ export function DysonDevice360ZonesMixin<TBase extends AbstractConstructor<Dyson
             // If a map is being used then ensure the latest maps are loaded
             let currentArea:        number | null           = null;
             let progress:           ServiceArea.Progress[]  = [];
-            const selectedAreas:    number[]                = [];
+            let selectedAreas:      number[]                = [];
             const { persistentMapId, zonesDefinitionVersion } = status;
             if (persistentMapId && await this.checkMap(persistentMapId, zonesDefinitionVersion)) {
                 const { zoneId, zoneStatus, cleaningProgramme } = status;
@@ -137,6 +160,14 @@ export function DysonDevice360ZonesMixin<TBase extends AbstractConstructor<Dyson
                 if (selectedAreas.length === 0) {
                     progress = Array.from(progressMap.entries(), ([areaId, status]) => ({ areaId, status }));
                 }
+            }
+
+            // Robot snapshots may omit a programme, especially on RB05. Do
+            // not replace an explicitly staged selection with All Rooms.
+            if (this.commandHandlers?.selectedAreaIds !== undefined) {
+                selectedAreas = this.commandHandlers.selectedAreaIds.filter(id => this.zoneFromMatter.has(id));
+                progress = selectedAreas.map(areaId => progress.find(entry => entry.areaId === areaId)
+                    ?? { areaId, status: ServiceArea.OperationalStatus.Pending });
             }
 
             // Update the Service Area cluster attributes
@@ -196,7 +227,7 @@ export function DysonDevice360ZonesMixin<TBase extends AbstractConstructor<Dyson
 
             // First check whether the matching map and version is already known
             let myVersion = getMyVersion();
-            if (myVersion && (!rvcVersion || rvcVersion <= myVersion)) {
+            if (myVersion !== undefined && (!rvcVersion || rvcVersion <= myVersion)) {
                 if (rvcVersion && rvcVersion < myVersion) {
                     this.log.info(`RVC map ${persistentMapId} is out of date (${rvcVersion} < ${myVersion})`);
                 }
@@ -206,7 +237,7 @@ export function DysonDevice360ZonesMixin<TBase extends AbstractConstructor<Dyson
             // Retrieve the latest maps and then check again
             await this.updateMaps();
             myVersion = getMyVersion();
-            if (myVersion) {
+            if (myVersion !== undefined) {
                 // Tolerate but warn of version mismatches
                 if (rvcVersion && rvcVersion < myVersion) {
                     this.log.info(`RVC map ${persistentMapId} is out of date (${rvcVersion} < ${myVersion})`);
@@ -223,16 +254,27 @@ export function DysonDevice360ZonesMixin<TBase extends AbstractConstructor<Dyson
         async updateMaps(): Promise<boolean> {
             // Retrieve the latest persistent map metadata
             if (!this.api) return false;
-            const metadata = await this.api.getPersistentMapMetadata360();
+            const metadata = await this.getPersistentMapMetadata();
 
             // Check for any changes
             let changed = false;
             const oldMetadata = [...this.mapFromMatter.values()];
-            for (const { id, zonesDefinitionLastUpdatedDate } of metadata) {
-                const prevUpdateDate = oldMetadata.find(map => map.id === id)?.zonesDefinitionLastUpdatedDate;
-                if (prevUpdateDate === zonesDefinitionLastUpdatedDate) continue;
+            for (const map of metadata) {
+                const { id, zonesDefinitionLastUpdatedDate } = map;
+                const previous = oldMetadata.find(candidate => candidate.id === id);
+                const sameDefinition = previous && isDeepStrictEqual({
+                    name:           previous.name,
+                    zoneProperties: previous.zoneProperties,
+                    zones:          previous.zones
+                }, {
+                    name:           map.name,
+                    zoneProperties: map.zoneProperties,
+                    zones:          map.zones
+                });
+                const prevUpdateDate = previous?.zonesDefinitionLastUpdatedDate;
+                if (prevUpdateDate === zonesDefinitionLastUpdatedDate && sameDefinition) continue;
                 changed = true;
-                this.log.info(`Map ${id} ${prevUpdateDate ? 'updated' : 'added'}`);
+                this.log.info(`Map ${id} ${previous ? 'updated' : 'added'}`);
             }
             for (const { id } of oldMetadata) {
                 if (metadata.some(map => map.id === id)) continue;
